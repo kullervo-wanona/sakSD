@@ -1,243 +1,43 @@
-import pdb
-trace = pdb.set_trace
+
+from sys import platform
+print(platform)
+
+if 'linux' in platform: 
+    from IPython.core.debugger import set_trace
+    trace = set_trace
+elif 'darwin' in platform: 
+    import pdb
+    trace = pdb.set_trace
+else:
+    import pdb
+    trace = pdb.set_trace
+
 import pprint
 pp = pprint.PrettyPrinter(width=41, compact=True).pprint
-
+   
 import numpy as np
 import os
-import re
 import pickle
-import xml.etree.ElementTree as ET
-import shutil
+from argparse import ArgumentParser
+from pathlib import Path
 
-import cairosvg
-import io
-from PIL import Image
+def main():
+    parser = ArgumentParser()
+    # parser.add_argument("-d", "--dir", default='./dataset/')
+    args = parser.parse_args()
 
-def rec_get_all_strokes_from_svg_el(svg_el):
-    if svg_el.tag == 'path': 
-        svg_el.attrib['d']
-        return [svg_el.attrib['d']]
+    DATASET_DIR = str(Path.home())+'/Datasets/'
 
-    strokes = []
-    for ent in list(svg_el): 
-        strokes += rec_get_all_strokes_from_svg_el(ent)
-    return strokes
+    with open(DATASET_DIR + 'images.npy', 'rb') as f: loaded_images_np = np.load(f)
+    with open(DATASET_DIR + 'labels.pickle', 'rb') as f: loaded_labels = pickle.load(f)
 
-def cubic_bezier_extract(d_curve_str):
+    print(loaded_images_np.shape)
+    print(len(loaded_labels))
+    trace()
 
-    m_all_pos = [x.start() for x in re.finditer('m', d_curve_str)]
-    M_all_pos = [x.start() for x in re.finditer('M', d_curve_str)]
-    assert (d_curve_str[0] in ['m', 'M'] and (len(m_all_pos) + len(M_all_pos)) == 1)
-    c_all_pos = [x.start() for x in re.finditer('c', d_curve_str)]
-    s_all_pos = [x.start() for x in re.finditer('s', d_curve_str)]
-    C_all_pos = [x.start() for x in re.finditer('C', d_curve_str)]
-    S_all_pos = [x.start() for x in re.finditer('S', d_curve_str)]
-    m_c_s_all_pos = [0] + sorted(c_all_pos + s_all_pos + C_all_pos + S_all_pos) + [len(d_curve_str)]
+if __name__ == "__main__":
+    main()
 
-    splits = []
-    for i in range(len(m_c_s_all_pos)-1):
-        splits.append(d_curve_str[m_c_s_all_pos[i]:m_c_s_all_pos[i+1]])
-
-    param_list = []
-    for part in splits: 
-        part_type = part[0]
-        # params_1 = part[1:].split(',')
-        params_raw = list(filter(None, re.split(r'(\s|\,)', part[1:].strip())))
-        params = []
-        for p in params_raw: 
-            if len(p.strip()) > 0 and not (len(p.strip()) == 1 and p.strip()[0] == ','):
-                params.append(p.strip())
-
-        params_ext = []
-        for param in params: 
-            neg_all_pos = [x.start() for x in re.finditer('-', param)]
-
-            if len(neg_all_pos) == 0: params_ext.append(param)
-            else:
-                split_pos = neg_all_pos + [len(param)] if neg_all_pos[0] == 0 else [0] + neg_all_pos + [len(param)]
-                in_splits = []
-                for j in range(len(split_pos)-1):
-                    in_splits.append(param[split_pos[j]:split_pos[j+1]])
-                params_ext = params_ext + in_splits
-        
-        params_floated = [float(e.strip()) for e in params_ext]
-
-        if part_type in ['m', 'M']: 
-            assert (len(params_floated) == 2)
-            param_list.append({'type': part_type, 'params': params_floated})
-        elif part_type in ['c', 'C']: 
-            assert (len(params_floated) % 6 == 0)
-            for k in range(int(len(params_floated)/6)):
-                param_list.append({'type': part_type, 'params': params_floated[k*6:(k+1)*6]})
-        elif part_type in ['s', 'S']: 
-            assert (len(params_floated) % 4 == 0)
-            for k in range(int(len(params_floated)/4)):
-                param_list.append({'type': part_type, 'params': params_floated[k*4:(k+1)*4]})
-
-    return param_list
-
-def svg_str_from_cubic_bezier_params(cb_params_list, height, width, stroke_width_px):
-    svg_str = '<svg xmlns="http://www.w3.org/2000/svg" height="' + str(int(height)) + '" width="' + str(int(width)) + '">'
-    # svg_str += '<g transform="translate(0, 0)">'
-
-    for cb_params in cb_params_list:
-        svg_str += '<path d='
-        svg_str += '"' 
-
-        m_param = cb_params[0]
-        assert (m_param['type'] in ['m', 'M'])
-        svg_str += m_param['type'] + ' ' + str(m_param['params'][0]) + ',' + str(m_param['params'][1])
-        for curve_param in cb_params[1:]:
-            assert (curve_param['type'] in ['c', 's', 'C', 'S'])
-            curve_str = curve_param['type'] + ' ' 
-
-            for i, param_f in enumerate(curve_param['params']):
-                if i % 2 == 0: curve_str += ' ' + str(param_f)
-                else: curve_str += ',' + str(param_f) 
-            svg_str += ' ' + curve_str
-
-        svg_str += '"'
-        svg_str += ' style="fill:none;stroke:#000;stroke-width:' + str(int(stroke_width_px)) + 'px;"'
-        svg_str += '/>'
-
-    # svg_str +='</g>'
-    svg_str +='</svg>'
-    return svg_str
-
-def add_white_background_trans_image(init_np):
-    transp = init_np[:, :, -1, np.newaxis]
-    np_image = init_np[:, :, :3] + (255-transp)
-    return np_image
-
-def svg_str_to_np_image(svg_str):
-    svg_str_byte = svg_str.encode('utf-8')
-    mem = io.BytesIO()
-    cairosvg.svg2png(bytestring=svg_str_byte, write_to=mem)
-    return np.array(Image.open(mem)) 
-
-def save_np_image(np_image, path):
-    im = Image.fromarray(np_image)
-    im.save(path)
-
-def get_kanji_metadata_dict(kanji_char_entries):
-    metadata_dict = {}
-    for i, char_entry in enumerate(kanji_char_entries):
-        assert ((char_entry).tag == 'character')
-        char_el_list = list(char_entry)
-        
-        info_dict = {}
-        ucs_hex = None
-        for e in char_el_list: 
-            if e.tag == 'codepoint':
-                code_point_els = list(e)
-                for code_point_el in code_point_els:
-                    if code_point_el.attrib['cp_type'] == 'ucs':
-                        assert (ucs_hex is None)
-                        ucs_hex = code_point_el.text
-                        for _ in range(5-len(ucs_hex)):
-                            ucs_hex = '0' + ucs_hex
-
-                assert (ucs_hex is not None)
-
-            elif e.tag == 'reading_meaning':
-                for el in list(e):
-                    if el.tag == 'rmgroup':
-                        if 'meanings' not in info_dict: info_dict['meanings'] = []
-
-                        for rm_el in list(el):
-                            if rm_el.tag == 'meaning':
-                                if len(rm_el.attrib) == 0:
-                                    info_dict['meanings'].append(rm_el.text)
-                                # else:
-                                #     print(rm_el.attrib)
-
-        assert (ucs_hex is not None)
-        metadata_dict[ucs_hex.lower()] = info_dict
-
-    meaning_filtered_metadata_dict = {}
-    for key in metadata_dict: 
-        if 'meanings' in metadata_dict[key] and len(metadata_dict[key]['meanings']) > 0:
-            meaning_filtered_metadata_dict[key] = metadata_dict[key]
-
-    return metadata_dict, meaning_filtered_metadata_dict
-
-def filter_meaning_and_svg_hexes(meaning_filtered_metadata_dict, svg_entries):
-    meaning_and_svg_set = set()
-    for k, svg_entry in enumerate(svg_entries): 
-        kanji_id_str = svg_entry.attrib['id']
-        kanji_id_hex = kanji_id_str[len('kvg:kanji_'):].lower()
-        assert(len(kanji_id_hex) == 5)
-        assert (svg_entry.tag == 'kanji')
-        assert (kanji_id_str[:len('kvg:kanji_')])
-        if kanji_id_hex in meaning_filtered_metadata_dict:
-            meaning_and_svg_set.add(kanji_id_hex)
-    return meaning_and_svg_set
-
-def create_dataset(svg_all_entries, meaning_and_svg_set, im_height, im_width, im_stroke_width_px, dataset_dir, kanji_metadata_dict=None, create_svgs=True):
-    if os.path.exists(dataset_dir): shutil.rmtree(dataset_dir)
-    if not os.path.exists(dataset_dir): os.makedirs(dataset_dir)
-    if create_svgs and not os.path.exists(dataset_dir + 'svg/'): os.makedirs(dataset_dir + 'svg/')
-
-    images_np = np.zeros((len(meaning_and_svg_set), im_height, im_width, 3), np.uint8)
-    labels = []
-
-    count = 0 
-    for k, svg_entry in enumerate(svg_all_entries): 
-
-        kanji_id_str = svg_entry.attrib['id']
-        kanji_id_hex = kanji_id_str[len('kvg:kanji_'):].lower()
-
-        assert(len(kanji_id_hex) == 5)
-        assert (svg_entry.tag == 'kanji')
-        assert (kanji_id_str[:len('kvg:kanji_')])
-
-        if kanji_id_hex not in meaning_and_svg_set: continue
-
-        strokes = []
-        for e in list(svg_entry):
-            strokes += rec_get_all_strokes_from_svg_el(e)
-
-        cubic_bezier_params_list = [cubic_bezier_extract(e) for e in strokes]
-        svg_str = svg_str_from_cubic_bezier_params(cubic_bezier_params_list, height=im_height, width=im_width, stroke_width_px=im_stroke_width_px)
-        svg_np = add_white_background_trans_image(svg_str_to_np_image(svg_str))
-        if create_svgs: save_np_image(svg_np, dataset_dir + 'svg/' + "%04d" % (count) + '__' + kanji_id_hex +'.png')
-
-        images_np[count, :, :, :] = svg_np
-
-        if kanji_metadata_dict is not None:
-            in_metadata_dict = kanji_id_hex in kanji_metadata_dict
-            has_meaning_entry = 'meanings' in kanji_metadata_dict[kanji_id_hex] if kanji_id_hex in kanji_metadata_dict else False
-            n_meaning_entries = len(kanji_metadata_dict[kanji_id_hex]['meanings']) if kanji_id_hex in kanji_metadata_dict and 'meanings' in kanji_metadata_dict[kanji_id_hex] else 0
-
-            print('\n\n############################################################################################\n')
-            print('hex: ', kanji_id_hex, ' in_metadata_dict: ', in_metadata_dict, ' has_meaning_entry: ', has_meaning_entry, ' n_meaning_entries: ', n_meaning_entries)
-            if n_meaning_entries > 0: 
-                print('\n##############################################\n')
-                for meaning in kanji_metadata_dict[kanji_id_hex]['meanings']: print(meaning + '\n')
-            print('\n\n############################################################################################\n')
-        
-        labels.append(kanji_metadata_dict[kanji_id_hex]['meanings'])
-        count += 1
-
-    with open(dataset_dir + 'images.npy', 'wb') as f: np.save(f, images_np)
-    with open(dataset_dir + 'labels.pickle', 'wb') as f: pickle.dump(labels, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-DATASET_DIR = './dataset/'
-
-# STROKE_WIDTH = 3
-# IM_HEIGHT = 109
-# IM_WIDTH = 109
-# kanji_char_entries = list(ET.parse('kanjidic2.xml').getroot())[1:]
-# svg_all_entries = list(ET.parse('kanjivg-20220427.xml').getroot())
-# kanji_metadata_dict, meaning_filtered_metadata_dict = get_kanji_metadata_dict(kanji_char_entries)
-# meaning_and_svg_set = filter_meaning_and_svg_hexes(meaning_filtered_metadata_dict, svg_all_entries)
-# create_dataset(svg_all_entries, meaning_and_svg_set, IM_HEIGHT, IM_WIDTH, STROKE_WIDTH, DATASET_DIR, kanji_metadata_dict, create_svgs=True)
-
-with open(DATASET_DIR + 'images.npy', 'rb') as f: loaded_images_np = np.load(f)
-with open(DATASET_DIR + 'labels.pickle', 'rb') as f: loaded_labels = pickle.load(f)
-
-trace()
 
 
 
