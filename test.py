@@ -1,7 +1,5 @@
 
 from sys import platform
-print(platform)
-
 if 'linux' in platform: 
     from IPython.core.debugger import set_trace
     trace = set_trace
@@ -31,7 +29,8 @@ def main():
 
     print(loaded_images_np.shape)
     print(len(loaded_labels))
-
+    trace()
+    
 if __name__ == "__main__":
     main()
 
