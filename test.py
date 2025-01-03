@@ -5,7 +5,7 @@ print(platform)
 if 'linux' in platform: 
     from IPython.core.debugger import set_trace
     trace = set_trace
-elif 'darwin' in platform: 
+elif 'darwin' in platform: #mac os
     import pdb
     trace = pdb.set_trace
 else:
@@ -27,13 +27,14 @@ def main():
     args = parser.parse_args()
 
     DATASET_DIR = str(Path.home())+'/Datasets/'
+    print(DATASET_DIR)
+    
+    # with open(DATASET_DIR + 'images.npy', 'rb') as f: loaded_images_np = np.load(f)
+    # with open(DATASET_DIR + 'labels.pickle', 'rb') as f: loaded_labels = pickle.load(f)
 
-    with open(DATASET_DIR + 'images.npy', 'rb') as f: loaded_images_np = np.load(f)
-    with open(DATASET_DIR + 'labels.pickle', 'rb') as f: loaded_labels = pickle.load(f)
-
-    print(loaded_images_np.shape)
-    print(len(loaded_labels))
-    trace()
+    # print(loaded_images_np.shape)
+    # print(len(loaded_labels))
+    # trace()
 
 if __name__ == "__main__":
     main()
