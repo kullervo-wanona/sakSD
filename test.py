@@ -23,18 +23,14 @@ from pathlib import Path
 
 def main():
     parser = ArgumentParser()
-    # parser.add_argument("-d", "--dir", default='./dataset/')
+    parser.add_argument("-d", "--dir", default='/Datasets/Kanji/Stroke3/')
     args = parser.parse_args()
 
-    DATASET_DIR = str(Path.home())+'/Datasets/'
-    print(DATASET_DIR)
-    
-    # with open(DATASET_DIR + 'images.npy', 'rb') as f: loaded_images_np = np.load(f)
-    # with open(DATASET_DIR + 'labels.pickle', 'rb') as f: loaded_labels = pickle.load(f)
+    with open(str(Path.home())+args.dir + 'images.npy', 'rb') as f: loaded_images_np = np.load(f)
+    with open(str(Path.home())+args.dir + 'labels.pickle', 'rb') as f: loaded_labels = pickle.load(f)
 
-    # print(loaded_images_np.shape)
-    # print(len(loaded_labels))
-    # trace()
+    print(loaded_images_np.shape)
+    print(len(loaded_labels))
 
 if __name__ == "__main__":
     main()
